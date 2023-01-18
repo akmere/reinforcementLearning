@@ -132,7 +132,9 @@ def do_episode(b_policy, pi_policy, current_state = False, random_action = False
         if(not are_b_and_pi_policies_same): 
             b_policy[state_index].fill(0.1/(len(b_policy[state_index])-1))
             b_policy[state_index,maximizing_index] = 0.9
+        # if(action_index != maximizing_index): break
         w = w/(b_policy[state_index, action_index]) if b_policy[state_index, action_index] != 0 else 0
+        # w = (pi_policy[state_index, action_index] * w)/(b_policy[state_index, action_index]) if b_policy[state_index, action_index] != 0 else 0
         # print(probs[state_index])
         # print(q[state_index].argmax(0))
         # print(probs[state_index])
