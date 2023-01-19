@@ -56,7 +56,12 @@ def do_step(state: State, action):
         probs[old_state_index] = np.full(len(actions),1/len(actions), dtype=float)
         q[old_state_index] = np.full(len(actions),0, dtype=float)
     if(new_state.grid[action[0],action[1]] != 0):
-        r[tuple([old_state_index,actions.tolist().index(action.tolist())])] = -10
+        action_index = actions.tolist().index(action.tolist())
+        r[tuple([old_state_index,action_index])] = -10
+        q[old_state_index][action_index] = -10
+        maximizing_indices = np.argwhere(q[old_state_index] == np.amax(q[old_state_index])).flatten()
+        probs[old_state_index] = np.full(len(actions), 0, dtype=float)
+        probs[old_state_index][np.array(maximizing_indices)] = 1/len(maximizing_indices)
         return new_state
     new_state.grid[action[0],action[1]] = 1 if new_state.o_turn else 2
     new_state.o_turn = not new_state.o_turn
@@ -74,43 +79,46 @@ def do_episode(draw = False):
     current_state = copy.deepcopy(starting_state)
     state_index = get_state_index(current_state)
     chosen_action = actions[np.random.choice(len(actions), p=probs[state_index])]
-    sa = [[current_state, chosen_action]]
-    winner = -1
+    sa = [[copy.deepcopy(current_state), copy.deepcopy(chosen_action)]]
+    winner = current_state.winner
     while(winner == -1):
-        draw_state(current_state)
-        print(f"q: {q[state_index]}")
-        print(f"probs: {probs[state_index]}")
-        chosen_action = actions[np.random.choice(len(actions), p=probs[state_index])]
-        print(f"chosen action: {chosen_action}")
-        action_index = actions.tolist().index(list(chosen_action.tolist()))
-        current_state = do_step(current_state, chosen_action)
-        print(f"reward for action: {'None' if (state_index, action_index) not in r else r[(state_index, action_index)]}")
-        print(f"action index: {action_index}")
         # draw_state(current_state)
-        sa.append([current_state, chosen_action])
+        action_index = actions.tolist().index(list(chosen_action.tolist()))
+        # print(f"q: {q[state_index]}")
+        # print(f"probs: {probs[state_index]}")
+        # print(f"chosen action: {chosen_action}")
+        # print(f"reward for action: {'None' if (state_index, action_index) not in r else r[(state_index, action_index)]}")
+        # print(f"action index: {action_index}")
+        current_state = do_step(current_state, chosen_action)
+        chosen_action = actions[np.random.choice(len(actions), p=probs[state_index])]
+        sa.append([copy.deepcopy(current_state), copy.deepcopy(chosen_action)])
+        # draw_state(current_state)
         state_index = get_state_index(current_state)
         # print(f"q: {q[state_index]}")
         # print(f"probs: {probs[state_index]}")
         winner = current_state.winner
+    sa.reverse()
     for state, action in sa:
         state_index = get_state_index(state)
         action_index = actions.tolist().index(action.tolist())
         if(draw): draw_state(state)
-        print(f"winner: {state.winner}")
+        # print(f"action that is taken during after state above: {action}")
+        # print(f"winner: {state.winner}")
         reward = 1 if (winner == 1 and state.o_turn == False) or (winner == 2 and state.o_turn == True) else -1 if (winner == 1 and state.o_turn == True) or (winner == 2 and state.o_turn == False) else 0
         if((state_index, action_index) in r): reward = r[(state_index, action_index)]
-        print(f"reward: {reward}")
+        # print(f"reward: {reward}")
         q[state_index][action_index] += 0.03 * (reward - q[state_index][action_index])
         # maximizing_index = np.argmax(q[state_index],0)
-        print(f"q[state_index]: {q[state_index]}")
+        # print(f"q[state_index]: {q[state_index]}")
         maximizing_indices = np.argwhere(q[state_index] == np.amax(q[state_index])).flatten()
-        print(f"maximizing indices: {maximizing_indices}")
+        # print(f"maximizing indices: {maximizing_indices}")
         # print(f"q: {q[state_index]}")
         # print(f"maximizing: {maximizing_index}")
         # if(not len(set(q[state_index])) == 1):
         probs[state_index] = np.full(len(actions), 0, dtype=float)
-        probs[state_index][np.array(maximizing_indices)] = 1/len(maximizing_indices)
-        print(f"YEE: {probs[state_index]}")
+        probs[state_index][np.array(maximizing_indices)] = (1-0.1)/len(maximizing_indices)
+        probs[state_index] += 0.1/len(probs[state_index])
+        # print(f"YEE: {probs[state_index]}")
         # print(f"eee: {probs}")
 
 # action = actions[5]
@@ -119,5 +127,26 @@ def do_episode(draw = False):
 
 for i in range(100): 
     print(i)
-    do_episode(draw=True)
-print(f"r: {r}")
+    do_episode(draw=False)
+    
+# do_episode(draw=True)
+# print(f"all actions: {actions}")
+# print(f"r: {r}")
+
+def play():
+    state = copy.deepcopy(starting_state)
+    draw_state(state)
+    while(state.winner == -1):
+        draw_state(state)
+        opponent_action = actions[np.random.choice(len(actions), p=probs[get_state_index(state)])]
+        print(f"Opponent action: {opponent_action}")
+        state = do_step(state,opponent_action)
+        draw_state(state)
+        choice = input("Your move: ")
+        # print(choice)
+        action = [int(choice[0]),int(choice[1])]
+        state.grid[action[0],[action[1]]] = 1 if state.o_turn else 2
+        state.o_turn = not state.o_turn
+        print("winner: ", state.winner)
+        
+play()
