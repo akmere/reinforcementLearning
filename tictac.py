@@ -4,24 +4,66 @@ import copy
 import itertools
 import keyboard
 import datetime
+import json
+from numpyencoder import NumpyEncoder
+from os.path import exists
+from types import SimpleNamespace
+
+
+def jsonKeys2int(x):
+    if isinstance(x, dict):
+            return {int(k):v for k,v in x.items()}
+    return x
+
+def convert_keys_to_int(d: dict):
+    new_dict = {}
+    for k, v in d.items():
+        try:
+            new_key = int(k)
+        except ValueError:
+            new_key = k
+        if type(v) == dict:
+            v = convert_keys_to_int(v)
+        new_dict[new_key] = v
+    return new_dict
 
 class State:
-    def __init__(self, grid, o_turn):
+    def __init__(self, grid, o_turn = True):
         self.grid = np.array(grid)
-        self.o_turn = o_turn
-        self.winner = -1
+        self.o_turn = True if len([x for x in self.grid.flatten() if x == 1]) == len([x for x in self.grid.flatten() if x == 2]) else False
     def __eq__(self, __o: object):
         return np.array_equal(self.grid, __o.grid) and self.o_turn == __o.o_turn
 
-initial_state = State([[0,0,0],[0,0,0],[0,0,0]], True)
-states = [initial_state]
+# initial_state = State([[0,0,0],[0,0,0],[0,0,0]], True)
+# states = []
 actions = np.array(list(itertools.product((0,1,2),(0,1,2))))
-probs = {}
-q = {}
-gamma = 0.5
-a = 0.15
+# probs = {}
+# q = {}
+# gamma = 1
+# a = 0.1
+# e = 0.5
 
-f = open("ehe.txt", "a")
+def load_data():
+    q_return = {}
+    probs_return = {}
+    states_return = []
+    if(exists('q.json')):
+        f = open('q.json', "r")
+        q_return = json.loads(f.read())
+        q_return = convert_keys_to_int(q_return)
+    if(exists('probs.json')):
+        f = open('probs.json', "r")
+        probs_return = json.loads(f.read())
+        probs_return = convert_keys_to_int(probs_return)
+    if(exists('states.json')):
+        f = open('states.json', "r")
+        states_return = json.loads(f.read())
+        states_return = [State(**state) for state in states_return]
+    return states_return, q_return, probs_return
+    
+
+# read_files = True
+# if(read_files): states, q, probs = load_data()
 
 def keywithmaxval(d):
      """ a) create a list of the dict's keys and values; 
@@ -32,15 +74,15 @@ def keywithmaxval(d):
      
      return k[v.index(max(v))]
 
-def get_state_index(state : State):
-    index = False
+def get_state_index(state : State, states):
+    index = None
     try:
         index = list(states).index(state)
     except:
         pass
     return index
 
-def get_action_index(action):
+def get_action_index(action, actions):
     return actions.tolist().index(action.tolist())
 
 def draw_state(state : State):
@@ -73,42 +115,45 @@ def do_step(state: State, action):
     state.o_turn = not state.o_turn
     return state
 
-def get_appropriate_action(state: State, policy):
-    state_index = get_state_index(state)
-    if(state_index == False):
+def get_appropriate_action(state: State, policy, states):
+    state_index = get_state_index(state, states)
+    if(state_index == None):
         states.append(state)
-        state_index = get_state_index(state)
+        state_index = get_state_index(state, states)
     if (state_index not in policy): policy[state_index] = {}
     available_actions = get_available_actions(state)
     if(len(available_actions) == 0): return False
     if(len(policy[state_index]) == 0):
         for available_action in available_actions:
-            policy[state_index][get_action_index(available_action)] = 1/len(available_actions)
+            policy[state_index][get_action_index(available_action, actions)] = 1/len(available_actions)
     chosen_action = actions[np.random.choice(list(policy[state_index].keys()), p= list(policy[state_index].values()))]
     return chosen_action
 
-def do_episode(starting_state, policy, starting_action = False, draw = False):
+def do_episode(starting_state, policy, states, q, a, e, target_policy = False, improve_policy = True, starting_action = False, draw = False):
     current_state = copy.deepcopy(starting_state)
     current_action = starting_action
-    if(current_action == False): current_action = copy.deepcopy(get_appropriate_action(current_state, policy))
+    if(current_action == False): current_action = copy.deepcopy(get_appropriate_action(current_state, policy, states))
     sa = []
     winner = check_winner(current_state)
     while(winner == -1):
         sa.append([copy.deepcopy(current_state), copy.deepcopy(current_action)])
         # if(draw): draw_state(current_state)
         current_state = do_step(current_state, current_action)
-        current_action = get_appropriate_action(current_state, policy)
+        current_action = get_appropriate_action(current_state, policy, states)
         winner = check_winner(current_state)
-    final_reward = 1
+    final_reward = 100
     sa.reverse()
     if(draw): print("Last state: ")
     if(draw): draw_state(current_state)
+    update_q_and_policy(sa, policy, states, q, a, e, target_policy=target_policy, improve_policy=improve_policy,draw=draw)
+    
+def update_q_and_policy(sa, policy, states, q, a, e, target_policy = False, improve_policy = True, draw = False):
+    winner = check_winner(sa[0][0])
     for state, action in sa:
-        final_reward = abs(final_reward) if (winner == 1 and state.o_turn) or (winner == 2 and not state.o_turn) else -abs(final_reward) if (winner == 1 and not state.o_turn) or (winner == 2 and state.o_turn) else 0
-        state_index = get_state_index(state)
-        action_index = get_action_index(action)
+        final_reward = 100 if (winner == 1 and state.o_turn) or (winner == 2 and not state.o_turn) else 0 if (winner == 1 and not state.o_turn) or (winner == 2 and state.o_turn) else 50
+        state_index = get_state_index(state, states)
+        action_index = get_action_index(action, actions)
         if(draw): 
-            draw_state(state)
             print(f"Turn: {state.o_turn}")
             print(f"Winner: {winner}")
             print(f"Rewards: {final_reward}")
@@ -117,7 +162,7 @@ def do_episode(starting_state, policy, starting_action = False, draw = False):
         if state_index not in q: q[state_index] = {}
         if(len(q[state_index]) == 0):
             available_actions = get_available_actions(state)
-            for action_index_helper in [get_action_index(available_action) for available_action in available_actions]:
+            for action_index_helper in [get_action_index(available_action, actions) for available_action in available_actions]:
                 q[state_index][action_index_helper] = 0
         if(draw): 
             print(f"old q[state_index]: {q[state_index]}")
@@ -129,34 +174,47 @@ def do_episode(starting_state, policy, starting_action = False, draw = False):
         keys = list(q[state_index].keys())
         # print(f"keys: {keys}")
         # print(f"maximizing_indices: {maximizing_indices}")
-        values = [(1-0.15)/len(maximizing_indices) if x in maximizing_indices else 0 for x in keys]
-        values = [value + 0.15/len(values) for value in values]
         if(draw): print(f"old probs: {policy[state_index]}")
-        policy[state_index] = {k:v for k,v in zip(keys, values)}
-        if(draw): print(f"new probs: {policy[state_index]}")
-        final_reward = gamma * final_reward
+        values = [(1-e)/len(maximizing_indices) if x in maximizing_indices else 0 for x in keys]
+        values = [value + e/len(values) for value in values]
+        if(improve_policy): policy[state_index] = {k:v for k,v in zip(keys, values)}
+        if(target_policy != False):
+            values_for_target_policy = [(1)/len(maximizing_indices) if x in maximizing_indices else 0 for x in keys]
+            target_policy[state_index] = {k:v for k,v in zip(keys, values_for_target_policy)}
+        if(draw): 
+            print(f"new probs: {policy[state_index]}")
+            draw_state(state)
+        # final_reward = gamma * final_reward
         # print(policy[state_index])
-        pass
+        
+        
+def get_deterministic_policy(q_array):    
+    pi = {}
+    for state_index in q_array:
+        keys = list(q_array[state_index].keys())
+        maximum = max(q_array[state_index].values())
+        maximizing_indices = [key for key in q_array[state_index].keys() if q_array[state_index][key] == maximum]
+        values_for_target_policy = [(1)/len(maximizing_indices) if x in maximizing_indices else 0 for x in keys]
+        pi[state_index] = {k:v for k,v in zip(keys, values_for_target_policy)}
+    return pi
+    
+# pi = get_deterministic_policy(q)
+    
+# while(i <= 1):
+#     print(i)
+#     do_episode(initial_state, probs, states, target_policy=pi)
+#     i+=1
+    
+# f = open("states.json", "w")
+# f.write(json.dumps([vars(state) for state in states], cls=NumpyEncoder))
+# f = open("q.json", "w")
+# f.write(json.dumps(q, cls=NumpyEncoder))
+# f = open("policy.json", "w")
+# f.write(json.dumps(pi, cls=NumpyEncoder))
 
-i=1
-while(not keyboard.is_pressed('q')):
-    print(i)
-    do_episode(initial_state, probs)
-    i+=1
-for state in states:
-    f.write(str(vars(state)))
-f.write(f"\n{str(actions)}\n")
-f.write(str(q))
-f.write("\n")
-f.write(str(probs))
+# custom_state = State(grid=[[2,0,0],[0,0,0],[2,1,1]], o_turn=True)
+# for i in range(1): do_episode(custom_state, pi, states, improve_policy=False,draw=True)
+# print(len(states))
 
-pi = {}
-for state_index in q:
-    pi[state_index] = {}
-    for action_index in q[state_index]:
-        maximum = max(q[state_index].values())
-        maximizing_indices = [key for key in q[state_index].keys() if q[state_index][key] == maximum]
-        pi[state_index][action_index] = 1/len(maximizing_indices) if action_index in maximizing_indices else 0
-do_episode(initial_state, pi,draw=True)
-# print(probs[0])
-print(actions)
+# # print(probs[0])
+# print(actions)
