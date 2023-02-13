@@ -206,8 +206,8 @@ counts = []
 print(q)
 for i in range(1000):
     start_time = datetime.now()
-    # count = do_episode_2(probs, pi, actions, q, 0.1, 0.9, 0.15)
-    count = do_episode(probs, pi)
+    count = do_episode_2(probs, pi, actions, q, 0.1, 0.9, 0.15)
+    # count = do_episode(probs, pi)
     counts.append(count)
     print(f"{i}: {count}, {datetime.now() - start_time}")
 print(q)
